@@ -11,6 +11,8 @@
 
 #include "RGBController_HIDLampArray.h"
 
+#include <set>
+
 /**------------------------------------------------------------------*\
     @name HID LampArray Controllers
     @category Keyboard
@@ -42,17 +44,58 @@ RGBController_HIDLampArray::RGBController_HIDLampArray(HIDLampArrayController* c
 RGBController_HIDLampArray::~RGBController_HIDLampArray()
 {
     delete controller;
+
+    /*-----------------------------------------------------*\
+    | Delete the matrix map                                 |
+    \*-----------------------------------------------------*/
+    for(unsigned int zone_index = 0; zone_index < zones.size(); zone_index++)
+    {
+        if(zones[zone_index].matrix_map != NULL)
+        {
+            delete zones[zone_index].matrix_map->map;
+            delete zones[zone_index].matrix_map;
+        }
+    }
 }
 
 void RGBController_HIDLampArray::SetupZones()
 {
     zone new_zone;
-    new_zone.name       = "Test Zone";
-    new_zone.type       = ZONE_TYPE_SINGLE;
+    new_zone.name       = "LampArray";
+    new_zone.type       = ZONE_TYPE_MATRIX;
     new_zone.leds_count = controller->GetLampCount();
     new_zone.leds_min   = new_zone.leds_count;
     new_zone.leds_max   = new_zone.leds_count;
-    new_zone.matrix_map = NULL;
+
+    std::vector<LampAttributes> Lamps = controller->GetLamps();
+    std::set<unsigned int> rows, columns;
+    for (LampAttributes lamp : Lamps)
+    {
+        rows.insert(lamp.PositionYInMillimeters);
+        columns.insert(lamp.PositionXInMillimeters);
+    }
+
+    size_t height       = rows.size(), width = columns.size();
+    size_t matrix_size  = height * width;
+
+    unsigned int* map   = new unsigned int[matrix_size];
+
+    std::fill_n(map, matrix_size, 0xffffffff);
+
+    for(size_t i = 0; i < Lamps.size(); i++)
+    {
+        //FIXME this assumes that matrix_size is big enough which is only guaranteed when no key possition is doubled
+        size_t idx      = std::distance(columns.begin(), columns.find(Lamps[i].PositionXInMillimeters));
+        size_t idy      = std::distance(rows.begin(), rows.find(Lamps[i].PositionYInMillimeters));
+
+        map[idx + idy * width] = i;
+    }
+
+    new_zone.matrix_map         = new matrix_map_type;
+    new_zone.matrix_map->height = height;
+    new_zone.matrix_map->width  = width;
+    new_zone.matrix_map->map    = map;
+
     zones.push_back(new_zone);
 
     for(unsigned int led_idx = 0; led_idx < new_zone.leds_count; led_idx++)
